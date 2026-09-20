@@ -1,0 +1,41 @@
+# =============================================================================
+# Fair TPRM MariaDB tuning (baked into the image at
+# /etc/mysql/mariadb.conf.d/99-fairtprm-tuning.cnf)
+#
+# Loaded AFTER /etc/mysql/conf.d/* (mariadb.cnf includes conf.d first, then
+# mariadb.conf.d), so these values win over the stock 16M mysqldump default.
+#
+# Purpose: allow backup AND restore of very large rows/cells (up to ~1 GB) and
+# multi-GB dumps without hitting the default 16 MB packet ceiling or the short
+# network timeouts. max_allowed_packet must be raised on BOTH the server and the
+# client tools for a ~1 GB cell to round-trip.
+# =============================================================================
+
+[mysqld]
+max_allowed_packet      = 1G
+net_read_timeout        = 600
+net_write_timeout       = 600
+# Larger redo log so big transactions (large BLOB inserts during restore) are
+# comfortable. MariaDB 10.11 resizes the redo log safely at startup.
+innodb_log_file_size    = 512M
+
+# Buffer pool: the stock default is 128M, which caches only a fraction of a
+# data-heavy tenant's DB (e.g. a fully-hydrated Grip Shadow SaaS mirror), so reads
+# spill to disk. 512M keeps such a tenant's hot working set in RAM. This cap is
+# shared by every container built from this image, but InnoDB allocates the pool
+# LAZILY: small tenants (most are <10 MB) only ever touch a few MB of pages, so
+# raising the cap costs them effectively nothing while big tenants get the cache.
+innodb_buffer_pool_size = 512M
+
+# Use loose- so option-intolerant client tools that read [client] but do NOT
+# recognise max_allowed_packet (notably mysqladmin, used by the entrypoint
+# readiness gate) skip the option instead of aborting with exit 7. mysql and
+# mysqldump still honour it (loose- only suppresses the unknown-variable error).
+[client]
+loose-max_allowed_packet = 1G
+
+[mysql]
+max_allowed_packet      = 1G
+
+[mysqldump]
+max_allowed_packet      = 1G
